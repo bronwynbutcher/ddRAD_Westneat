@@ -1,0 +1,144 @@
+---
+title: "Untitled"
+author: "Bronwyn"
+date: "2023-03-06"
+output: github_document
+---
+
+# Download the data
+
+-   Connect to the biohpc server
+-   Make a directory for this data.
+-   Open the download script provided by BRC and copy the line that is relevant for this index group and use wget to download the data into this folder
+
+```{bash, eval = FALSE }
+ssh bgb27@cubsulogin.biohpc.cornell.edu
+#make a directory in your home directory for this data.
+mkdir Westneat_trial
+cd Westneat_trial
+wget -q -c -O 13831_3270_184521_HFLNCAFX5_DW10_TAGCTT_R1.fastq.gz "http://cbsuapps.biohpc.cornell.edu/Sequencing/showseqfile.aspx?mode=http&cntrl=1245323501&refid=1007426"
+```
+
+# Check the quality of the data
+-   reserve a machine for computing and log into this machine
+-   create a working directory on this machine
+-   copy the raw data into that directory.
+-   Using `FastQC`, check the quality of the data (<https://www.bioinformatics.babraham.ac.uk/projects/fastqc/>)
+
+```{bash, eval = FALSE}
+cd /workdir
+mkdir bgb27
+cp /home/Westneat_trial/*.gz /workdir/bgb27
+fastqc 13831_3270_184521_HFLNCAFX5_DW10_TAGCTT_R1.fastq.gz
+```
+
+[Results:]{.underline} Use Filezilla to transfer the resulting .html files to your computer and view.  [see results here](./results/13831_3270_184521_HFLNCAFX5_DW10_TAGCTT_R1_fastqc.html) these results look normal for ddRAD-seq data.
+
+# Filter data
+
+Using the `fastx_trimmer` and `fastq-quality_filter`from the `FASTX-Toolkit` <http://hannonlab.cshl.edu/fastx_toolkit/commandline.html> we will do the following:
+
+-   first trim all reads to a length of 147 (this will remove the last 4 bases of each read. these are the reads with the lowest quality)
+
+-   filter reads based on quality: *first* eliminate sequences where there is a sinlge base with a Phred score below 10 and *second* elmininate sequences where 5% of bases have a with Phred quality scores below 20.
+
+```{bash, eval=FALSE}
+gunzip *.gz
+
+fastx_trimmer -f 1 -l 147 -Q33 -i 13831_3270_184521_HFLNCAFX5_DW10_TAGCTT_R1.fastq -o DW10_t.fastq 
+fastq_quality_filter -q 10 -p 100 -Q33 -i DW10_t.fastq -o DW10_tf.fastq
+fastq_quality_filter -q 20 -p 95 -Q33 -i DW10_tf.fastq -o DW10_tff.fastq
+```
+
+# Demultiplex data
+
+We will demultiplex the data using the process_radtags module from `stacks` (https://catchenlab.life.illinois.edu/stacks/)
+
+First prepare an index file that includes the barcode and sample name for the 20 samples in the DW10 index group. This should be a tab delimited file with barcode and name of sample. Make sure there are no extra lines or characters and save as a txt file. See file [here](./scripts/DW10.txt). Use filezilla to transfer this file into the working directory on your reserved machine.
+
+```{r, echo = FALSE, message=FALSE}
+library (tidyverse)
+library (knitr)
+index10 <- read_tsv("./scripts/DW10.txt", col_names = FALSE) 
+kable(index10, col.names = NULL)
+```
+
+run `process_radtags`:
+
+-   create a directory for the trimmed and filtered data - `DW10raw`
+
+-   move the trimmed and filtered data into this folder
+
+-   create directory for the demultiplexed data - `demultfilter`
+
+-   run process_radtags
+
+```{bash, eval=FALSE}
+mkdir ./DW10raw
+mv ./DW10_tff.fastq ./DW10raw/DW10_tff.fastq
+mkdir ./demultfilter
+
+nohup /programs/stacks/bin/process_radtags -p ./DW10raw -b ./DW10.txt -o ./demultfilter -e sbfI -c -q -E phred33 --inline_null -i fastq --adapter_1 GATCGGAAGAGCACACGTCTGAACTCCAGTCACTAGCTTATCTCGTATGCCGTCTTCTGCTTG --adapter_mm 1 --filter_illumina &
+```
+
+# Denovo alignment
+
+- explanation of how the denovo pipeline works to form stacks and loci and what the parameters mean: http://catchenlab.life.illinois.edu/stacks/param_tut.php
+
+- see this paper for description of the pipeline we will use: Rochette, N., Catchen, J. Deriving genotypes from RAD-seq short-read data using Stacks. Nat Protoc 12, 2640–2659 (2017). https://doi-org.proxy.library.cornell.edu/10.1038/nprot.2017.123 
+
+- create a script to run the subset of samples through the denovo wrapper using different M and n parameters. (see ./scripts/denovo.sh)
+
+```{bash, eval=FALSE}
+##Run 1
+mkdir denovo_run1
+denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popmap_bushtit.txt -m 3 -M 1 -n 1 -T 15 -o /workdir/bgb27/denovo_run1
+populations -P /workdir/bgb27/denovo_run1 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
+
+# note -T or -t = # of threads/CPUs to use
+# for populations: -P = path to directory containing the Stacks files (output from the denovo run)
+#                  -M = path to the population map (in thsi case same as used in the denovo trial)
+#                  -r = minimum percentage of individuals in a population req to have a locus to process the locus
+
+##Run 2
+mkdir denovo_run2
+denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popmap_bushtit.txt -m 3 -M 2 -n 2 -T 15 -o /workdir/bgb27/denovo_run2
+populations -P /workdir/bgb27/denovo_run2 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
+
+##Run 3
+mkdir denovo_run3
+denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popmap_bushtit.txt -m 3 -M 3 -n 3 -T 15 -o /workdir/bgb27/denovo_run3
+populations -P /workdir/bgb27/denovo_run3 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
+
+##Run 4
+mkdir denovo_run4
+denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popmap_bushtit.txt -m 3 -M 4 -n 4 -T 15 -o /workdir/bgb27/denovo_run4
+populations -P /workdir/bgb27/denovo_run4 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
+
+##Run 5
+mkdir denovo_run5
+denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popmap_bushtit.txt -m 3 -M 5 -n 5 -T 15 -o /workdir/bgb27/denovo_run5
+populations -P /workdir/bgb27/denovo_run5 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
+
+##Run 6
+mkdir denovo_run6
+denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popmap_bushtit.txt -m 3 -M 6 -n 6 -T 15 -o /workdir/bgb27/denovo_run6
+populations -P /workdir/bgb27/denovo_run6 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
+
+##Run 7
+mkdir denovo_run7
+denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popmap_bushtit.txt -m 3 -M 7 -n 7 -T 15 -o /workdir/bgb27/denovo_run7
+populations -P /workdir/bgb27/denovo_run7 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
+
+##Run 8
+mkdir denovo_run8
+denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popmap_bushtit.txt -m 3 -M 8 -n 8 -T 15 -o /workdir/bgb27/denovo_run8
+populations -P /workdir/bgb27/denovo_run8 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
+
+##Run 9
+mkdir denovo_run9
+denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popmap_bushtit.txt -m 3 -M 9 -n 9 -T 15 -o /workdir/bgb27/denovo_run9
+populations -P /workdir/bgb27/denovo_run9 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
+```
+
+
