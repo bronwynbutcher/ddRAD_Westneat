@@ -5,6 +5,10 @@ date: "2023-03-06"
 output: github_document
 ---
 
+```{r, include=FALSE}
+library(tidyverse)
+library(knitr)
+```
 # Download the data
 
 -   Connect to the biohpc server
@@ -13,7 +17,7 @@ output: github_document
 
 ```{bash, eval = FALSE }
 ssh bgb27@cubsulogin.biohpc.cornell.edu
-#make a directory in your home directory for this data.
+#make a directory in my directory for this data.
 mkdir Westneat_trial
 cd Westneat_trial
 wget -q -c -O 13831_3270_184521_HFLNCAFX5_DW10_TAGCTT_R1.fastq.gz "http://cbsuapps.biohpc.cornell.edu/Sequencing/showseqfile.aspx?mode=http&cntrl=1245323501&refid=1007426"
@@ -36,11 +40,13 @@ fastqc 13831_3270_184521_HFLNCAFX5_DW10_TAGCTT_R1.fastq.gz
 
 # Filter data
 
-Using the `fastx_trimmer` and `fastq-quality_filter`from the `FASTX-Toolkit` <http://hannonlab.cshl.edu/fastx_toolkit/commandline.html> we will do the following:
+Using the `fastx_trimmer` and `fastq-quality_filter`from the `FASTX-Toolkit` <http://hannonlab.cshl.edu/fastx_toolkit/commandline.html> 
+
+[We will do the following:]{.underline}
 
 -   first trim all reads to a length of 147 (this will remove the last 4 bases of each read. these are the reads with the lowest quality)
 
--   filter reads based on quality: *first* eliminate sequences where there is a sinlge base with a Phred score below 10 and *second* elmininate sequences where 5% of bases have a with Phred quality scores below 20.
+-   filter reads based on quality: *first* eliminate sequences where there is a sinlge base with a Phred score below 10 and *second* eliminate sequences where 5% of bases have a with Phred quality scores below 20.
 
 ```{bash, eval=FALSE}
 gunzip *.gz
@@ -54,13 +60,21 @@ fastq_quality_filter -q 20 -p 95 -Q33 -i DW10_tf.fastq -o DW10_tff.fastq
 
 We will demultiplex the data using the process_radtags module from `stacks` (https://catchenlab.life.illinois.edu/stacks/)
 
-First prepare an index file that includes the barcode and sample name for the 20 samples in the DW10 index group. This should be a tab delimited file with barcode and name of sample. Make sure there are no extra lines or characters and save as a txt file. See file [here](./scripts/DW10.txt). Use filezilla to transfer this file into the working directory on your reserved machine.
+**Note: Before running stacks you will need to run the following lines on the cluster to run the current version - see notes here:https://biohpc.cornell.edu/lab/userguide.aspx?a=software&i=454#c You'll need to do this each time you log in to the machine.**
+
+```{bash, eval = FALSE}
+# First specify the library path and path to stacks-2.59:
+
+export LD_LIBRARY_PATH=/usr/local/gcc-7.3.0/lib64:/usr/local/gcc-7.3.0/lib
+
+export PATH=/programs/stacks-2.59/bin:$PATH
+```
+
+First prepare an index file that includes the barcode and sample name for the 20 samples in the DW10 index group. This should be a tab delimited file with barcode and name of sample. Make sure there are no extra lines or characters and save as a txt file. See file (./scripts/DW10.txt). Use filezilla to transfer this file into the working directory on your reserved machine.
 
 ```{r, echo = FALSE, message=FALSE}
-library (tidyverse)
-library (knitr)
-index10 <- read_tsv("./scripts/DW10.txt", col_names = FALSE) 
-kable(index10, col.names = NULL)
+read_tsv("./scripts/DW10.txt", col_names = FALSE) %>% 
+kable(col.names = NULL)
 ```
 
 run `process_radtags`:
@@ -87,7 +101,16 @@ nohup /programs/stacks/bin/process_radtags -p ./DW10raw -b ./DW10.txt -o ./demul
 
 - see this paper for description of the pipeline we will use: Rochette, N., Catchen, J. Deriving genotypes from RAD-seq short-read data using Stacks. Nat Protoc 12, 2640–2659 (2017). https://doi-org.proxy.library.cornell.edu/10.1038/nprot.2017.123 
 
-- create a script to run the subset of samples through the denovo wrapper using different M and n parameters. (see ./scripts/denovo.sh)
+
+- Create a `popmap` file: This is a tab delimited file with the name of the sample and the population (see .scripts/popmap_bushtit.txt)
+
+```{r, echo = FALSE, message=FALSE}
+read_tsv("./scripts/popmap_bushtit.txt", col_names = FALSE) %>% 
+kable(col.names = NULL)
+```
+
+- create a script (`denovo.sh`) to run the subset of samples through the denovo wrapper using different M and n parameters. (see ./scripts/denovo.sh)
+
 
 ```{bash, eval=FALSE}
 ##Run 1
@@ -141,4 +164,58 @@ denovo_map.pl --samples /workdir/bgb27/demultfilter --popmap /workdir/bgb27/popm
 populations -P /workdir/bgb27/denovo_run9 -M /workdir/bgb27/popmap_bushtit.txt -t 15 -r 0.8
 ```
 
+- transfer the script and the popmap file to the working directory using `Filezilla`.
 
+- run the script
+
+```{bash, eval=FALSE}
+nohup bash denovo.sh &
+```
+
+using grep find the information about the sites from each of these runs - this will be in the nohup.out file (make a tab deliminated file - ./results/denovo_results)
+
+```{bash, eval = FALSE}
+grep "all/variant/polymorphic sites" nohup.out
+```
+
+```{r, message=FALSE}
+read_tsv("./results/denovo_results", col_types = "iiiiii") %>%
+  select("M_n":"variant") %>% 
+  kable()
+```
+
+plot the # variants for each M/n parameter:
+
+```{r}
+read_tsv("./results/denovo_results", col_types = "iiiiii") %>% 
+ggplot(mapping = aes(x = `M_n`, y = `variant`)) +
+  geom_point() +
+  geom_line() +
+  xlim (0,10)
+         
+```
+
+Based on these results I will select a M/n value of 6 for the denovo alignment. Since we only have one index group of samples at this time I ran populations again on the denovo run #6 with extra filtering... 
+
+- in the denovo_run6 directory in the workdir run the following:
+
+```{bash, eval=FALSE}
+populations -P /workdir/bgb27/denovo_run6 -M /workdir/bgb27/popmap_bushtit.txt -r 0.80 -p 1 -t 15 --min-maf 0.05 --write-single-snp --structure
+```
+
+-r = minimum percentage of individuals in a population required to process a locus for that population.
+--min-maf — specify a minimum minor allele frequency required to process a nucleotide site at a locus (0 < min_maf < 0.5; applied to the metapopulation).
+--write-single-snp — restrict data analysis to only the first SNP per locus.
+--structure — output results in Structure format.
+
+[Results:]{.underline} 
+```
+Removed 8705 loci that did not pass sample/population constraints from 14849 loci.
+Kept 6144 loci, composed of 862694 sites; 1782 of those sites were filtered, 3561 variant sites remained.
+Mean genotyped sites per locus: 140.41bp (stderr 0.02).
+
+Population summary statistics (more detail in populations.sumstats_summary.tsv):
+  1: 19.184 samples per locus; pi: 0.29875; all/variant/polymorphic sites: 862694/3561/3561; private alleles: 0
+```
+
+*You can open the structure file in excel by changing the file extension to .xls and then you can investigate the SNPs and see which samples have a lot of missing data etc.*
