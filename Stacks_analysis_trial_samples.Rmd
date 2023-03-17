@@ -95,6 +95,13 @@ mkdir ./demultfilter
 nohup /programs/stacks/bin/process_radtags -p ./DW10raw -b ./DW10.txt -o ./demultfilter -e sbfI -c -q -E phred33 --inline_null -i fastq --adapter_1 GATCGGAAGAGCACACGTCTGAACTCCAGTCACTAGCTTATCTCGTATGCCGTCTTCTGCTTG --adapter_mm 1 --filter_illumina &
 ```
 
+Determine the # reads. Count lines and divide by 4.
+
+```{bash, eval = FALSE}
+cd demultfilter
+wc -l *.fq
+```
+
 # Denovo alignment
 
 - explanation of how the denovo pipeline works to form stacks and loci and what the parameters mean: http://catchenlab.life.illinois.edu/stacks/param_tut.php

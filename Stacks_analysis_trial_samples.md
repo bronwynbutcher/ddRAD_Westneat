@@ -128,6 +128,13 @@ mkdir ./demultfilter
 nohup /programs/stacks/bin/process_radtags -p ./DW10raw -b ./DW10.txt -o ./demultfilter -e sbfI -c -q -E phred33 --inline_null -i fastq --adapter_1 GATCGGAAGAGCACACGTCTGAACTCCAGTCACTAGCTTATCTCGTATGCCGTCTTCTGCTTG --adapter_mm 1 --filter_illumina &
 ```
 
+Determine the \# reads. Count lines and divide by 4.
+
+``` bash
+cd demultfilter
+wc -l *.fq
+```
+
 # Denovo alignment
 
 - explanation of how the denovo pipeline works to form stacks and loci
@@ -266,7 +273,7 @@ ggplot(mapping = aes(x = `M_n`, y = `variant`)) +
   xlim (0,10)
 ```
 
-![](Stacks_analysis_trial_samples_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
+![](Stacks_analysis_trial_samples_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
 
 Based on these results I will select a M/n value of 6 for the denovo
 alignment. Since we only have one index group of samples at this time I
